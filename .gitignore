@@ -1,0 +1,12 @@
+.env
+certs/
+node_modules/
+dist/
+logs/
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.iml
+coverage/
+npm-debug.log*
