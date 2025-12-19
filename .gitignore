@@ -10,3 +10,7 @@ logs/
 *.iml
 coverage/
 npm-debug.log*
+.zencoder/
+.zenflow/
+DEPLOYMENT.md
+DEVELOPMENT.md

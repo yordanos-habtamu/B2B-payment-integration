@@ -13,6 +13,8 @@ import (
 	"syscall"
 
 	customMiddleware "github.com/yordanos-habtamu/b2b-payments/internal/server/middleware"
+	"github.com/yordanos-habtamu/b2b-payments/internal/service"
+	"github.com/yordanos-habtamu/b2b-payments/internal/handler"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -32,6 +34,10 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
 
+	// Initialize services
+	paymentService := service.NewPaymentService()
+	paymentHandler := handler.NewPaymentHandler(paymentService)
+
 	// Health check (no auth required)
 	e.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
@@ -40,6 +46,13 @@ func main() {
 	// Protected API group — all routes under /api require tenant auth
 	api := e.Group("/api/v1")
 	api.Use(customMiddleware.TenantExtraction())
+	
+	// Initialize OPA middleware
+	opaMiddleware, err := customMiddleware.NewOPAMiddleware()
+	if err != nil {
+		log.Fatalf("Failed to initialize OPA middleware: %v", err)
+	}
+	
 	// <-- Zero Trust tenant scoping
 	// Initialize Redis-backed idempotency
 	idempotency, err := customMiddleware.NewIdempotency(cfg.RedisURL, cfg.IdempotencyTTL)
@@ -48,8 +61,20 @@ func main() {
 	}
 
 	api.Use(customMiddleware.TenantExtraction())
-	api.Use(customMiddleware.Authorize())
+	api.Use(opaMiddleware.Authorize()) // <-- OPA policy-based authorization
 	api.Use(idempotency.Idempotent()) // <-- Idempotency protection
+
+	// Payment routes
+	payments := api.Group("/payments")
+	payments.GET("", paymentHandler.ListPayments)
+	payments.POST("", paymentHandler.CreatePayment)
+	payments.GET("/stats", paymentHandler.GetPaymentStats)
+	payments.GET("/:id", paymentHandler.GetPayment)
+	payments.PUT("/:id", paymentHandler.UpdatePayment)
+	payments.POST("/:id/process", paymentHandler.ProcessPayment)
+	payments.POST("/:id/cancel", paymentHandler.CancelPayment)
+
+	// Legacy endpoint for backward compatibility
 	api.GET("/payments", func(c echo.Context) error {
 		tenantID, err := customMiddleware.GetTenantID(c)
 		if err != nil {
